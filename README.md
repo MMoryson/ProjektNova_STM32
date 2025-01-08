@@ -15,4 +15,4 @@ Użyte elementy:
 - reyzstory 1.1 kOhmów i 10 kOhmów
 - przewody
 
-projekt uzywa biblioteki do wyświetlacza ssd1306 zaczerpniętej z: https://github.com/ptrre/kurs-stm32-e18-oled-i2c
+Projekt używa biblioteki z własnymi modyfikacjami do wyświetlacza ssd1306 zaczerpniętej z: https://github.com/ptrre/kurs-stm32-e18-oled-i2c . 
