@@ -60,9 +60,10 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #define WIDTH SSD1306_WIDTH
 #define HEIGHT SSD1306_HEIGHT
+#define pgm_read_byte(addr) (*(const unsigned char *)(addr))
 
 void GFX_draw_char(int16_t x, int16_t y, unsigned char c, uint16_t color, uint16_t bg, uint8_t size_x, uint8_t size_y);
 void GFX_draw_string(int16_t x, int16_t y, unsigned char * c, uint16_t color, uint16_t bg, uint8_t size_x, uint8_t size_y);
 void GFX_draw_fill_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
-
+void GFX_draw_Bitmap(int16_t x, int16_t y, const uint8_t bitmap[], int16_t w, int16_t h, uint16_t color, uint16_t bg);
 #endif /* INC_GFX_H_ */

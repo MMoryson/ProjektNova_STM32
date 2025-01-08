@@ -68,6 +68,9 @@ POSSIBILITY OF SUCH DAMAGE.
     @param    size_y  Font magnification level in Y-axis, 1 is 'original' size
 */
 /**************************************************************************/
+void startWrite() {}
+void endWrite() {}
+
 void GFX_draw_char(int16_t x, int16_t y, unsigned char c, uint16_t color, uint16_t bg, uint8_t size_x, uint8_t size_y)
 {
 	int8_t i, j;
@@ -161,3 +164,25 @@ void GFX_draw_fill_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t col
 		SSD1306_draw_fast_vline(i, y, h, color);
 	}
 }
+
+void GFX_draw_Bitmap(int16_t x, int16_t y, const uint8_t bitmap[],
+                          	int16_t w, int16_t h, uint16_t color,
+                          	uint16_t bg) {
+
+  int16_t byteWidth = (w + 7) / 8; // Bitmap scanline pad = whole byte
+  uint8_t b = 0;
+
+  startWrite();
+  for (int16_t j = 0; j < h; j++, y++) {
+	for (int16_t i = 0; i < w; i++) {
+  	if (i & 7)
+    	b <<= 1;
+  	else
+    	b = pgm_read_byte(&bitmap[j * byteWidth + i / 8]);
+  	SSD1306_draw_pixel(x + i, y, (b & 0x80) ? color : bg);
+	}
+  }
+  endWrite();
+}
+
+

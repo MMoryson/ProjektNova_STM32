@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "GFX.h"
+#include "bitmapy.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,6 +69,8 @@ uint32_t Value2 = 0;
 uint16_t Distance  = 0;
 
 uint32_t previousTime = 0;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -149,7 +152,7 @@ int wrap_encoder(int count, int min, int max, TIM_HandleTypeDef *htim)
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
 
-	static uint32_t last_send_time = 0;
+	//static uint32_t last_send_time = 0;
 
 	counter = __HAL_TIM_GET_COUNTER(&htim3);
 	count = (int16_t)counter;
@@ -220,13 +223,16 @@ int main(void)
 
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
 
-  //SSD1306_init();
-  //GFX_draw_fill_rect(0, 0, 64, 32, WHITE);
+  SSD1306_init();
+  GFX_draw_fill_rect(0, 0, 2*64, 2*32, BLACK);
   //GFX_draw_fill_rect(64, 32, 64, 32, WHITE);
   //GFX_draw_char(10, 10, 'a', WHITE, BLACK, 2, 2);
   //GFX_draw_string(0, 0, (unsigned char *)"Dupia", WHITE, BLACK, 2,2);
   //SSD1306_display_invert(true);
-  //SSD1306_display_repaint();
+  //GFX_draw_Bitmap(0, 0, bitmapa_1, 128, 64, WHITE, BLACK);
+  //GFX_draw_string(0, 0, (unsigned char *)"Dupia", WHITE, BLACK, 2,2);
+  SSD1306_display_repaint();
+
 
   HAL_TIM_Base_Start_IT(&htim4);
   HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
@@ -247,7 +253,7 @@ int main(void)
 		    {
 		        previousTime = HAL_GetTick(); // Zapisz aktualny czas
 
-		        int tx_msg_len = sprintf((char *)msg_dyst, "Distance: %d cm\r\nEncoder counter: %d\r\n\r\n ", Distance, pozycja);
+		        int tx_msg_len = sprintf((char *)msg_dyst, "Distance: %d cm Encoder counter: %d\r\n ", Distance, pozycja);
 		        HAL_UART_Transmit(&huart3, (uint8_t *)msg_dyst, tx_msg_len, 100);
 		    }
 		/*
