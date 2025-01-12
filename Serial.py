@@ -17,7 +17,7 @@ def odczyt_uart(csv_plik, port='COM3', baudrate=115200, timeout=1):
 
     with open(csv_plik, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['Czas', 'Dystans', 'Enkoder'])
+        writer.writerow(['Czas', 'Dystans', 'Pozycja', 'PWM', 'Enkoder'])
 
     last_time = -1  # Zmienna do sprawdzania unikalności czasu
 
@@ -34,12 +34,14 @@ def odczyt_uart(csv_plik, port='COM3', baudrate=115200, timeout=1):
                 res = list(map(int, temp))
                 if temp:
                     dystans = res[0]
-                    enkoder = res[1]
+                    pozycja = res[1]
+                    pwm = res[2]
+                    enkoder = res[3]
                     czas = a
                     with open(csv_plik, mode='a', newline='') as file:
                         writer = csv.writer(file)
-                        writer.writerow([czas, dystans, enkoder])
-                    yield (czas, dystans, enkoder)
+                        writer.writerow([czas, dystans, pozycja, pwm, enkoder])
+                    yield (czas, dystans, pozycja, pwm, enkoder)
     except KeyboardInterrupt:
         print("Zatrzymanie zbierania danych.")
     finally:
@@ -48,12 +50,14 @@ def odczyt_uart(csv_plik, port='COM3', baudrate=115200, timeout=1):
         print("Zamknięto port UART.")
 
 # Funkcja główna do rysowania wykresu
-def plot_data(csv_plik, plot_dystans, plot_enkoder):
+def plot_data(csv_plik, plot_dystans, plot_pozycja, plot_pwm, plot_enkoder):
     global stop_plotting
     uart_data = odczyt_uart(csv_plik)
 
     czas_list = deque(maxlen=100)
     dystans_list = deque(maxlen=100)
+    pozycja_list = deque(maxlen=100)
+    pwm_list = deque(maxlen=100)
     enkoder_list = deque(maxlen=100)
 
     # Tworzenie wykresu
@@ -69,9 +73,11 @@ def plot_data(csv_plik, plot_dystans, plot_enkoder):
 
     try:
         while not stop_plotting:
-            czas, dystans, enkoder = next(uart_data)
+            czas, dystans, pozycja, pwm, enkoder = next(uart_data)
             czas_list.append(czas)
             dystans_list.append(dystans)
+            pozycja_list.append(pozycja)
+            pwm_list.append(pwm)
             enkoder_list.append(enkoder)
 
             ax.clear()
@@ -79,6 +85,10 @@ def plot_data(csv_plik, plot_dystans, plot_enkoder):
 
             if plot_dystans:
                 ax.plot(czas_list, dystans_list, label='Dystans', color='blue')
+            if plot_pozycja:
+                ax.plot(czas_list, pozycja_list, label='Pozycja', color='red')
+            if plot_pwm:
+                ax.plot(czas_list, pwm_list, label='PWM', color='green')
             if plot_enkoder:
                 ax.plot(czas_list, enkoder_list, label='Enkoder', color='red')
 
@@ -102,23 +112,28 @@ def plot_data(csv_plik, plot_dystans, plot_enkoder):
 def choose_plot_options():
     def start_plot():
         plot_dystans = var_dystans.get()
+        plot_pozycja = var_pozycja.get()
+        plot_pwm = var_pwm.get()
         plot_enkoder = var_enkoder.get()
 
-        if not plot_dystans and not plot_enkoder:
+        if not plot_dystans and not plot_pozycja:
             messagebox.showerror("Błąd", "Musisz wybrać przynajmniej jedną zmienną do wykresu.")
         else:
             root.destroy()  # Zamknięcie okna wyboru
-            plot_data("data.csv", plot_dystans, plot_enkoder)
+            plot_data("data.csv", plot_dystans, plot_pozycja, plot_pwm, plot_enkoder)
 
     root = tk.Tk()
     root.title("Wybór danych do wykresu")
 
     var_dystans = tk.BooleanVar(value=True)
-    var_enkoder = tk.BooleanVar(value=True)
+    var_pozycja = tk.BooleanVar(value=True)
+    var_pwm = tk.BooleanVar(value=True)
+    var_enkoder = tk.BooleanVar(value=False)
 
     tk.Label(root, text="Wybierz dane do wykresu:").pack()
     tk.Checkbutton(root, text="Dystans", variable=var_dystans).pack()
-    tk.Checkbutton(root, text="Enkoder", variable=var_enkoder).pack()
+    tk.Checkbutton(root, text="Pozycja", variable=var_pozycja).pack()
+    tk.Checkbutton(root, text="PWM", variable=var_pwm).pack()
     tk.Button(root, text="Uruchom wykres", command=start_plot).pack()
 
     root.mainloop()
