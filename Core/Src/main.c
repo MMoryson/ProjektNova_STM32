@@ -28,6 +28,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+/*
+ * Jest to regulator PI wiec:
+ * sygnal refenercyjny - 	czyjnik			- dystans
+ * sygnal wejsciowy - 		enkoder			- pozycja
+ * sygnal wyjsciowy - 		wypelnienie pwm - wypelnienie
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include "GFX.h"
@@ -54,23 +61,44 @@
 uint8_t znak, komunikat[20];
 uint16_t dl_kom;
 
-uint8_t pulse = 0;
+uint16_t wypelnienie = 0;
+uint8_t pwm_send = 0;
 
 char msg[64];
 
 uint32_t counter;
 int16_t count;
-int16_t pozycja;
+int16_t pozycja = 20;
+int16_t pozycja_send=20;
 
 char msg_dyst[64];
 uint32_t pMillis;
 uint32_t Value1 = 0;
 uint32_t Value2 = 0;
-uint16_t Distance  = 0;
+uint16_t dystans  = 0;
+uint16_t dystans_temp = 0;
 
 uint32_t previousTime = 0;
 
+typedef struct {
+    float Kp;      // Wzmocnienie proporcjonalne
+    float Ki;      // Wzmocnienie całkujące
+    float calka; // Skumulowany błąd
+    float zadana; // Wartość zadana
+} Reg_PI;
 
+Reg_PI nasz_PI = {
+    .Kp = 1.0f,  // Ustawienia wzmocnienia
+    .Ki = 0.1f,
+    .calka = 0.0f,
+    .zadana = 0.0f // Przykładowa wartość zadana
+};
+
+float dt = 0.01f;
+float wynik;
+float wynik_temp;
+float uchyb;
+int ograniczenie_calki = 20;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,6 +115,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	if(GPIO_Pin == P2_Pin)
 	{
 		HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+		pozycja = pozycja_send;
+
+		//SSD1306_display_invert(true);
+		//HAL_Delay(10);
+		//SSD1306_display_invert(false);
 	}
 	if (GPIO_Pin == Echo_Pin)
 	{
@@ -97,10 +130,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		pMillis = HAL_GetTick();
 		while ((HAL_GPIO_ReadPin (Echo_GPIO_Port, Echo_Pin)) && pMillis + 50 > HAL_GetTick());
 		Value2 = __HAL_TIM_GET_COUNTER (&htim4);
-		Distance = (Value2-Value1)* 0.034/2;
+		dystans_temp = (Value2-Value1)* 0.034/2;
+		if(abs(dystans_temp - dystans)>100)
+		{
+			dystans = saturacja(dystans, 10, 100);
+		}
+		else{
+			dystans = saturacja(dystans_temp, 10, 100);
+		}
+
 
 		/*
-		int tx_msg_len_tim = sprintf((char *)msg_dyst, "Distance: %d cm\r\n", Distance);
+		int tx_msg_len_tim = sprintf((char *)msg_dyst, "dystans: %d cm\r\n", dystans);
 		HAL_UART_Transmit(&huart3, (uint8_t *)msg_dyst, tx_msg_len_tim, 100);
 		*/
 
@@ -112,29 +153,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(huart->Instance == USART3)
 	{
-		if(znak == 'e')
-		{
-			HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-			dl_kom = sprintf(komunikat, "DIODA ON\r\n");
 
-		}
-		else if(znak == 'd')
-		{
-	    	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-	    	dl_kom = sprintf(komunikat, "DIODA OFF\r\n");
+		int enkoder = strtol((char*)&znak, 0, 10);
+		pozycja = saturacja(enkoder, 20, 100);
 
-		}
-		else
-		{
-			dl_kom = sprintf(komunikat, "Zly znak\r\n");
-
-		}
 		HAL_UART_Transmit_IT(&huart3, komunikat, dl_kom);
-		HAL_UART_Receive_IT(&huart3, &znak, 1);
+		HAL_UART_Receive_IT(&huart3, &znak, 3);
 	}
 }
 
-int wrap_encoder(int count, int min, int max, TIM_HandleTypeDef *htim)
+int wrap_encoder(int count, int min, int max, int shift, TIM_HandleTypeDef *htim)
 {
     if (count < min * 4) {
         count += (max - min) * 4;
@@ -146,7 +174,7 @@ int wrap_encoder(int count, int min, int max, TIM_HandleTypeDef *htim)
         __HAL_TIM_SET_COUNTER(htim, count);
         return max;
     }
-    return count / 4;
+    return count / 4 + shift;
 }
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
@@ -157,7 +185,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 	counter = __HAL_TIM_GET_COUNTER(&htim3);
 	count = (int16_t)counter;
 
-	pozycja = wrap_encoder(count, 0, 100, &htim3);
+	pozycja_send = wrap_encoder(count, 0, 80, 20, &htim3);
 
 	/*if (HAL_GetTick() - last_send_time >= 100)
 	{
@@ -175,6 +203,41 @@ void uTime(int time)
 	__HAL_TIM_SET_COUNTER(&htim4, 0);
 	while (__HAL_TIM_GET_COUNTER(&htim4) < time);
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+}
+
+int saturacja(int wartosc, int min, int max)
+{
+
+	if(wartosc > max)
+	{
+		wartosc = max;
+	}
+	if(wartosc < min)
+	{
+		wartosc = min;
+	}
+	return wartosc;
+}
+
+
+float obliczanie_PI(Reg_PI *regulator, float dystans, float dt, int ograniczenie) {
+    // Obliczanie błędu
+    uchyb = regulator->zadana - dystans;
+
+    // Część całkująca
+    regulator->calka += uchyb*dt;
+
+    float P = regulator->Kp * uchyb;
+    float I;
+
+    if (100*abs(uchyb)/regulator->zadana > ograniczenie)
+    {
+    	regulator->calka= 0;
+    }
+
+    I = regulator->Ki * regulator->calka;
+
+    return  P+I;
 }
 
 
@@ -218,7 +281,7 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  HAL_UART_Receive_IT(&huart3, &znak, 1);
+  HAL_UART_Receive_IT(&huart3, &znak, 3);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
@@ -229,7 +292,7 @@ int main(void)
   //GFX_draw_char(10, 10, 'a', WHITE, BLACK, 2, 2);
   //GFX_draw_string(0, 0, (unsigned char *)"Dupia", WHITE, BLACK, 2,2);
   //SSD1306_display_invert(true);
-  //GFX_draw_Bitmap(0, 0, bitmapa_1, 128, 64, WHITE, BLACK);
+  //FX_draw_Bitmap(0, 0, wiatrak1, 128, 64, WHITE, BLACK);
   //GFX_draw_string(0, 0, (unsigned char *)"Dupia", WHITE, BLACK, 2,2);
   SSD1306_display_repaint();
 
@@ -246,6 +309,14 @@ int main(void)
   {
 	  //CZUJNIK
 	  uTime(10);
+	  nasz_PI.zadana = pozycja;
+	  wynik_temp = obliczanie_PI(&nasz_PI, (float)dystans, dt, ograniczenie_calki);
+
+	  wynik = saturacja(wynik_temp,0, 999);
+	  wypelnienie = (uint16_t)wynik;
+	  pwm_send = (uint8_t)(100*wynik/999);
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, wypelnienie);
+
 
 
 
@@ -253,11 +324,22 @@ int main(void)
 		    {
 		        previousTime = HAL_GetTick(); // Zapisz aktualny czas
 
-		        int tx_msg_len = sprintf((char *)msg_dyst, "Distance: %d cm Encoder counter: %d\r\n ", Distance, pozycja);
+		        int tx_msg_len = sprintf((char *)msg_dyst, "Distance: %d cm, Pozycja: %d , PWM: %d , Encoder counter: %d \n\r", dystans, pozycja, wypelnienie, pozycja_send);
 		        HAL_UART_Transmit(&huart3, (uint8_t *)msg_dyst, tx_msg_len, 100);
 		    }
+
+		  HAL_Delay(100);
+
+		  /*
+		  //PWM
+		 	  wypelnienie = wypelnienie + 1;
+		 	  if (wypelnienie > 998){wypelnienie = 0;}
+		 	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, wypelnienie);
+		 	  pwm_send = wypelnienie;
+		 	  */
+
 		/*
-		 		int tx_msg_len_tim = sprintf((char *)msg_dyst, "Distance: %d cm\r\n", Distance);
+		 		int tx_msg_len_tim = sprintf((char *)msg_dyst, "dystans: %d cm\r\n", dystans);
 		HAL_UART_Transmit(&huart3, (uint8_t *)msg_dyst, tx_msg_len_tim, 100);
 		 if (HAL_GetTick() - last_send_time >= 100)
 		 	{
@@ -266,12 +348,6 @@ int main(void)
 		 		int tx_msg_len = sprintf((char*)tx_buffer, "Encoder counter: %d\n\r", pozycja);
 		 		HAL_UART_Transmit(&huart3, tx_buffer, tx_msg_len, 100);
 		 	}*/
-
-	  //PWM
-	  pulse = pulse + 1;
-	  if (pulse > 998){pulse = 0;}
-	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, pulse);
-	  HAL_Delay(100);
 
 
 	  /*
