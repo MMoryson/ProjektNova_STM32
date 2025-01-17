@@ -2,7 +2,7 @@
 #define INC_BITMAPY_H_
 
 
-extern  const unsigned char wiatrak1[];
+extern const unsigned char wiatrak1[];
 extern const unsigned char wiatrak2[];
 
 

@@ -39,6 +39,7 @@
 #include <string.h>
 #include "GFX.h"
 #include "bitmapy.h"
+#include "i2c_connection.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -88,17 +89,21 @@ typedef struct {
 } Reg_PI;
 
 Reg_PI nasz_PI = {
-    .Kp = 1.0f,  // Ustawienia wzmocnienia
-    .Ki = 0.1f,
+    .Kp = 10.0f,  // Ustawienia wzmocnienia
+    .Ki = 0.0f,
     .calka = 0.0f,
     .zadana = 0.0f // Przykładowa wartość zadana
 };
 
-float dt = 0.01f;
+float dt = 0.0001f;
 float wynik;
 float wynik_temp;
 float uchyb;
 int ograniczenie_calki = 20;
+
+
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -117,6 +122,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
 		pozycja = pozycja_send;
 
+		if (!stan_rozpoczecia_inwersji)
+		{
+			stan_rozpoczecia_inwersji = true;
+			odliczenie_inwersji = HAL_GetTick();
+			licznik_migniec = 0;
+			stan_inwersji = false;
+		}
+
+
 		//SSD1306_display_invert(true);
 		//HAL_Delay(10);
 		//SSD1306_display_invert(false);
@@ -130,15 +144,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		pMillis = HAL_GetTick();
 		while ((HAL_GPIO_ReadPin (Echo_GPIO_Port, Echo_Pin)) && pMillis + 50 > HAL_GetTick());
 		Value2 = __HAL_TIM_GET_COUNTER (&htim4);
-		dystans_temp = (Value2-Value1)* 0.034/2;
-		if(abs(dystans_temp - dystans)>100)
+		dystans_temp = 100 - (Value2-Value1)* 0.034/2;
+		dystans = saturacja(dystans_temp, 0, 90);
+		/*if(abs(dystans_temp - dystans)>100)
 		{
 			dystans = saturacja(dystans, 10, 100);
 		}
 		else{
 			dystans = saturacja(dystans_temp, 10, 100);
-		}
-
+		}*/
 
 		/*
 		int tx_msg_len_tim = sprintf((char *)msg_dyst, "dystans: %d cm\r\n", dystans);
@@ -157,7 +171,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		int enkoder = strtol((char*)&znak, 0, 10);
 		pozycja = saturacja(enkoder, 20, 100);
 
-		HAL_UART_Transmit_IT(&huart3, komunikat, dl_kom);
+		//HAL_UART_Transmit_IT(&huart3, komunikat, dl_kom);
 		HAL_UART_Receive_IT(&huart3, &znak, 3);
 	}
 }
@@ -229,12 +243,12 @@ float obliczanie_PI(Reg_PI *regulator, float dystans, float dt, int ograniczenie
 
     float P = regulator->Kp * uchyb;
     float I;
-
+/*
     if (100*abs(uchyb)/regulator->zadana > ograniczenie)
     {
     	regulator->calka= 0;
     }
-
+*/
     I = regulator->Ki * regulator->calka;
 
     return  P+I;
@@ -251,7 +265,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -260,6 +273,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
 
   /* USER CODE END Init */
 
@@ -285,16 +299,18 @@ int main(void)
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
+  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
+	HAL_Delay(500);
 
   SSD1306_init();
-  GFX_draw_fill_rect(0, 0, 2*64, 2*32, BLACK);
+  //GFX_draw_fill_rect(0, 0, 2*64, 2*32, BLACK);
   //GFX_draw_fill_rect(64, 32, 64, 32, WHITE);
   //GFX_draw_char(10, 10, 'a', WHITE, BLACK, 2, 2);
   //GFX_draw_string(0, 0, (unsigned char *)"Dupia", WHITE, BLACK, 2,2);
   //SSD1306_display_invert(true);
-  //FX_draw_Bitmap(0, 0, wiatrak1, 128, 64, WHITE, BLACK);
+  //GFX_draw_Bitmap(0, 0, wiatrak1, 128, 64, WHITE, BLACK);
   //GFX_draw_string(0, 0, (unsigned char *)"Dupia", WHITE, BLACK, 2,2);
-  SSD1306_display_repaint();
+  //SSD1306_display_repaint();
 
 
   HAL_TIM_Base_Start_IT(&htim4);
@@ -310,25 +326,27 @@ int main(void)
 	  //CZUJNIK
 	  uTime(10);
 	  nasz_PI.zadana = pozycja;
-	  wynik_temp = obliczanie_PI(&nasz_PI, (float)dystans, dt, ograniczenie_calki);
+	  wynik_temp = saturacja(obliczanie_PI(&nasz_PI, (float)dystans, dt, ograniczenie_calki),0, 999)+465.0f;
 
-	  wynik = saturacja(wynik_temp,0, 999);
+	  wynik = saturacja(wynik_temp, 000, 999);
 	  wypelnienie = (uint16_t)wynik;
 	  pwm_send = (uint8_t)(100*wynik/999);
 	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, wypelnienie);
+	  pozycja = 60;
+
+	  inwersja3x();
+	  oled( pozycja, dystans, pwm_send);
 
 
-
-
-		 if (HAL_GetTick() - previousTime >= 500) // Sprawdź, czy minęło 100 ms
+		 if (HAL_GetTick() - previousTime >= 50) // Sprawdź, czy minęło 500 ms
 		    {
 		        previousTime = HAL_GetTick(); // Zapisz aktualny czas
 
-		        int tx_msg_len = sprintf((char *)msg_dyst, "Distance: %d cm, Pozycja: %d , PWM: %d , Encoder counter: %d \n\r", dystans, pozycja, wypelnienie, pozycja_send);
+		        int tx_msg_len = sprintf((char *)msg_dyst, "Distance: %d cm, Pozycja: %d , PWM: %d , Encoder counter: %d \n\r", dystans, pozycja, pwm_send, pozycja_send);
 		        HAL_UART_Transmit(&huart3, (uint8_t *)msg_dyst, tx_msg_len, 100);
 		    }
 
-		  HAL_Delay(100);
+		  HAL_Delay(10);
 
 		  /*
 		  //PWM
