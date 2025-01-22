@@ -19,7 +19,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "dma.h"
-#include "eth.h"
 #include "i2c.h"
 #include "tim.h"
 #include "usart.h"
@@ -62,7 +61,9 @@
 uint8_t znak, komunikat[20];
 uint16_t dl_kom;
 
-uint16_t wypelnienie = 0;
+//uint16_t wypelnienie = 0;
+//temp
+float wypelnienie = 0.0;
 uint8_t pwm_send = 0;
 
 char msg[64];
@@ -89,8 +90,8 @@ typedef struct {
 } Reg_PI;
 
 Reg_PI nasz_PI = {
-    .Kp = 10.0f,  // Ustawienia wzmocnienia
-    .Ki = 0.0f,
+    .Kp = 13.5f,  // Ustawienia wzmocnienia
+    .Ki = 0.48f,
     .calka = 0.0f,
     .zadana = 0.0f // Przykładowa wartość zadana
 };
@@ -99,9 +100,7 @@ float dt = 0.0001f;
 float wynik;
 float wynik_temp;
 float uchyb;
-int ograniczenie_calki = 20;
-
-
+int ograniczenie_calki = 40;
 
 
 /* USER CODE END PV */
@@ -145,7 +144,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		while ((HAL_GPIO_ReadPin (Echo_GPIO_Port, Echo_Pin)) && pMillis + 50 > HAL_GetTick());
 		Value2 = __HAL_TIM_GET_COUNTER (&htim4);
 		dystans_temp = 100 - (Value2-Value1)* 0.034/2;
+
 		dystans = saturacja(dystans_temp, 0, 90);
+
+
+		//dystans = dystans_temp;
+
+
+
+
 		/*if(abs(dystans_temp - dystans)>100)
 		{
 			dystans = saturacja(dystans, 10, 100);
@@ -170,9 +177,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 		int enkoder = strtol((char*)&znak, 0, 10);
 		pozycja = saturacja(enkoder, 20, 100);
+		pozycja_send = pozycja;
 
 		//HAL_UART_Transmit_IT(&huart3, komunikat, dl_kom);
 		HAL_UART_Receive_IT(&huart3, &znak, 3);
+
 	}
 }
 
@@ -211,7 +220,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 
 }
 
-void uTime(int time)
+void czujnik_wysylanie(int time)
 {
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
 	__HAL_TIM_SET_COUNTER(&htim4, 0);
@@ -233,7 +242,6 @@ int saturacja(int wartosc, int min, int max)
 	return wartosc;
 }
 
-
 float obliczanie_PI(Reg_PI *regulator, float dystans, float dt, int ograniczenie) {
     // Obliczanie błędu
     uchyb = regulator->zadana - dystans;
@@ -254,6 +262,41 @@ float obliczanie_PI(Reg_PI *regulator, float dystans, float dt, int ograniczenie
     return  P+I;
 }
 
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if(htim == &htim14)
+	{
+		czujnik_wysylanie(10);
+		nasz_PI.zadana = pozycja;
+		wynik_temp = saturacja(obliczanie_PI(&nasz_PI, (float)dystans, dt, ograniczenie_calki),0, 999)+430.0f;
+
+		wynik = saturacja(wynik_temp, 000, 999);
+		wypelnienie = (uint16_t)wynik;
+		pwm_send = (uint8_t)(100*wynik/999);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, wypelnienie);
+
+
+	 	/*wypelnienie = 464;
+
+		if( wypelnienie == 0){flag = 0;}
+		if( wypelnienie == 998){flag = 1;}
+		if(flag){wypelnienie = wypelnienie - 1;}
+		else{wypelnienie = wypelnienie + 1;}
+		//wypelnienie = wypelnienie + 1;
+	 	  if (wypelnienie > 998){wypelnienie = 0;}
+	 	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, (uint16_t)wypelnienie);
+	 	 pwm_send = (uint8_t)(100*wypelnienie/999);
+	 	 */
+	 	  //pwm_send = wypelnienie;
+
+		  //temp
+		 //pozycja = 60;
+		 //pozycja_send = pozycja;
+
+
+	}
+
+}
 
 /* USER CODE END 0 */
 
@@ -265,6 +308,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	//HAL_Delay(500);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -287,20 +331,24 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_ETH_Init();
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_I2C1_Init();
   MX_TIM4_Init();
+  MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   HAL_UART_Receive_IT(&huart3, &znak, 3);
+
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
 
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_ALL);
   __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
-	HAL_Delay(500);
+
+
+
 
   SSD1306_init();
   //GFX_draw_fill_rect(0, 0, 2*64, 2*32, BLACK);
@@ -311,10 +359,11 @@ int main(void)
   //GFX_draw_Bitmap(0, 0, wiatrak1, 128, 64, WHITE, BLACK);
   //GFX_draw_string(0, 0, (unsigned char *)"Dupia", WHITE, BLACK, 2,2);
   //SSD1306_display_repaint();
-
-
   HAL_TIM_Base_Start_IT(&htim4);
   HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+  HAL_TIM_Base_Start_IT(&htim14);
+
+
 
 
   /* USER CODE END 2 */
@@ -323,22 +372,14 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //CZUJNIK
-	  uTime(10);
-	  nasz_PI.zadana = pozycja;
-	  wynik_temp = saturacja(obliczanie_PI(&nasz_PI, (float)dystans, dt, ograniczenie_calki),0, 999)+465.0f;
 
-	  wynik = saturacja(wynik_temp, 000, 999);
-	  wypelnienie = (uint16_t)wynik;
-	  pwm_send = (uint8_t)(100*wynik/999);
-	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, wypelnienie);
-	  pozycja = 60;
+
 
 	  inwersja3x();
-	  oled( pozycja, dystans, pwm_send);
+	  oled(pozycja_send, dystans, pwm_send);
 
 
-		 if (HAL_GetTick() - previousTime >= 50) // Sprawdź, czy minęło 500 ms
+		 if (HAL_GetTick() - previousTime >= 500) // Sprawdź, czy minęło 500 ms
 		    {
 		        previousTime = HAL_GetTick(); // Zapisz aktualny czas
 
@@ -347,6 +388,7 @@ int main(void)
 		    }
 
 		  HAL_Delay(10);
+
 
 		  /*
 		  //PWM
